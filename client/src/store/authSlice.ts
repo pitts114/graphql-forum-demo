@@ -6,6 +6,7 @@ export interface AuthState {
   isAuthenticated: boolean
   loading: boolean
   error: string | null
+  profileCheckAttempted: boolean
 }
 
 const initialState: AuthState = {
@@ -13,6 +14,7 @@ const initialState: AuthState = {
   isAuthenticated: false,
   loading: false,
   error: null,
+  profileCheckAttempted: false,
 }
 
 export const loginUser = createAsyncThunk(
@@ -70,6 +72,7 @@ export const authSlice = createSlice({
         state.isAuthenticated = true
         state.user = action.payload
         state.error = null
+        state.profileCheckAttempted = true
       })
       .addCase(loginUser.rejected, (state, action) => {
         state.loading = false
@@ -87,6 +90,7 @@ export const authSlice = createSlice({
         state.isAuthenticated = true
         state.user = action.payload
         state.error = null
+        state.profileCheckAttempted = true
       })
       .addCase(registerUser.rejected, (state, action) => {
         state.loading = false
@@ -100,10 +104,12 @@ export const authSlice = createSlice({
         state.user = null
         state.error = null
         state.loading = false
+        state.profileCheckAttempted = false
       })
       
       .addCase(fetchProfile.pending, (state) => {
         state.loading = true
+        state.profileCheckAttempted = true
       })
       .addCase(fetchProfile.fulfilled, (state, action: PayloadAction<User>) => {
         state.loading = false
