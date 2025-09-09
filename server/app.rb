@@ -3,6 +3,7 @@ require 'pg'
 require 'bcrypt'
 require 'json'
 require 'rack/cors'
+require_relative 'graphql_schema'
 
 class App < Sinatra::Base
   configure do
@@ -35,6 +36,7 @@ class App < Sinatra::Base
     )
     
     create_users_table
+    create_forum_tables
   rescue PG::Error => e
     puts "Database connection failed: #{e.message}"
     puts "Make sure PostgreSQL is running and the database exists"
@@ -51,6 +53,44 @@ class App < Sinatra::Base
     SQL
     
     @db.exec("CREATE INDEX IF NOT EXISTS idx_username ON users(username)")
+  end
+
+  def create_forum_tables
+    @db.exec(<<~SQL)
+      CREATE TABLE IF NOT EXISTS threads (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    SQL
+
+    @db.exec(<<~SQL)
+      CREATE TABLE IF NOT EXISTS comments (
+        id SERIAL PRIMARY KEY,
+        content TEXT NOT NULL,
+        thread_id INTEGER REFERENCES threads(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    SQL
+
+    @db.exec(<<~SQL)
+      CREATE TABLE IF NOT EXISTS likes (
+        id SERIAL PRIMARY KEY,
+        comment_id INTEGER REFERENCES comments(id) ON DELETE CASCADE,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(comment_id, user_id)
+      )
+    SQL
+
+    @db.exec("CREATE INDEX IF NOT EXISTS idx_thread_user ON threads(user_id)")
+    @db.exec("CREATE INDEX IF NOT EXISTS idx_comment_thread ON comments(thread_id)")
+    @db.exec("CREATE INDEX IF NOT EXISTS idx_comment_user ON comments(user_id)")
+    @db.exec("CREATE INDEX IF NOT EXISTS idx_like_comment ON likes(comment_id)")
+    @db.exec("CREATE INDEX IF NOT EXISTS idx_like_user ON likes(user_id)")
   end
 
   helpers do
@@ -169,6 +209,29 @@ class App < Sinatra::Base
     rescue PG::Error
       halt 500, json(error: 'Failed to update password')
     end
+  end
+
+  post '/graphql' do
+    request_body = request.body.read
+    variables = {}
+    query = ""
+    
+    if request_body && !request_body.empty?
+      data = JSON.parse(request_body)
+      query = data['query']
+      variables = data['variables'] || {}
+    end
+
+    result = ForumSchema.execute(
+      query,
+      variables: variables,
+      context: {
+        db: @db,
+        current_user_id: current_user_id
+      }
+    )
+
+    json(result)
   end
 
   options '*' do
