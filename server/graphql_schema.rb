@@ -1,4 +1,5 @@
 require 'graphql'
+require_relative 'loaders'
 
 class UserType < GraphQL::Schema::Object
   field :id, ID, null: false
@@ -12,7 +13,8 @@ class LikeType < GraphQL::Schema::Object
   field :created_at, GraphQL::Types::ISO8601DateTime, null: false
 
   def user
-    object[:user] || context[:db].exec_params("SELECT * FROM users WHERE id = $1", [object['user_id']]).first
+    # Check if user data is pre-loaded from JOIN, otherwise use loader
+    object[:user] || dataloader.with(UserSource, context[:db]).load(object['user_id'])
   end
 end
 
@@ -26,25 +28,19 @@ class CommentType < GraphQL::Schema::Object
   field :created_at, GraphQL::Types::ISO8601DateTime, null: false
 
   def user
-    object[:user] || context[:db].exec_params("SELECT * FROM users WHERE id = $1", [object['user_id']]).first
+    dataloader.with(UserSource, context[:db]).load(object['user_id'])
   end
 
   def likes
-    likes_result = context[:db].exec_params("SELECT l.*, u.username FROM likes l JOIN users u ON l.user_id = u.id WHERE l.comment_id = $1", [object['id']])
-    likes_result.map do |like|
-      like.merge('user' => { 'id' => like['user_id'], 'username' => like['username'] })
-    end
+    []
   end
 
   def likes_count
-    context[:db].exec_params("SELECT COUNT(*) as count FROM likes WHERE comment_id = $1", [object['id']]).first['count'].to_i
+    0
   end
 
   def is_liked_by_current_user
-    return false unless context[:current_user_id]
-    
-    result = context[:db].exec_params("SELECT 1 FROM likes WHERE comment_id = $1 AND user_id = $2", [object['id'], context[:current_user_id]])
-    result.ntuples > 0
+    false
   end
 end
 
@@ -58,17 +54,16 @@ class ThreadType < GraphQL::Schema::Object
   field :created_at, GraphQL::Types::ISO8601DateTime, null: false
 
   def user
-    object[:user] || context[:db].exec_params("SELECT * FROM users WHERE id = $1", [object['user_id']]).first
+    dataloader.with(UserSource, context[:db]).load(object['user_id'])
   end
 
   def comments
-    comments_result = context[:db].exec_params("SELECT c.*, u.username FROM comments c JOIN users u ON c.user_id = u.id WHERE c.thread_id = $1 ORDER BY c.created_at ASC", [object['id']])
-    comments_result.map do |comment|
-      comment.merge('user' => { 'id' => comment['user_id'], 'username' => comment['username'] })
-    end
+    dataloader.with(CommentsByThreadSource, context[:db]).load(object['id'])
   end
 
   def comment_count
+    # For now, we'll use a simple query since count is just one value
+    # Could be optimized with another loader if needed
     context[:db].exec_params("SELECT COUNT(*) as count FROM comments WHERE thread_id = $1", [object['id']]).first['count'].to_i
   end
 end
@@ -80,18 +75,14 @@ class QueryType < GraphQL::Schema::Object
   end
 
   def threads
-    threads_result = context[:db].exec("SELECT t.*, u.username FROM threads t JOIN users u ON t.user_id = u.id ORDER BY t.created_at DESC")
-    threads_result.map do |thread|
-      thread.merge('user' => { 'id' => thread['user_id'], 'username' => thread['username'] })
-    end
+    threads_result = context[:db].exec("SELECT * FROM threads ORDER BY created_at DESC")
+    threads_result.to_a
   end
 
   def thread(id:)
-    thread_result = context[:db].exec_params("SELECT t.*, u.username FROM threads t JOIN users u ON t.user_id = u.id WHERE t.id = $1", [id])
+    thread_result = context[:db].exec_params("SELECT * FROM threads WHERE id = $1", [id])
     return nil if thread_result.ntuples == 0
-    
-    thread_data = thread_result.first
-    thread_data.merge('user' => { 'id' => thread_data['user_id'], 'username' => thread_data['username'] })
+    thread_result.first
   end
 end
 
@@ -117,10 +108,8 @@ class MutationType < GraphQL::Schema::Object
       "INSERT INTO threads (title, content, user_id) VALUES ($1, $2, $3) RETURNING *",
       [title, content, context[:current_user_id]]
     )
-    
-    thread_data = result.first
-    user_result = context[:db].exec_params("SELECT * FROM users WHERE id = $1", [thread_data['user_id']])
-    thread_data.merge('user' => user_result.first)
+
+    result.first
   end
 
   def create_comment(thread_id:, content:)
@@ -130,10 +119,8 @@ class MutationType < GraphQL::Schema::Object
       "INSERT INTO comments (content, thread_id, user_id) VALUES ($1, $2, $3) RETURNING *",
       [content, thread_id, context[:current_user_id]]
     )
-    
-    comment_data = result.first
-    user_result = context[:db].exec_params("SELECT * FROM users WHERE id = $1", [comment_data['user_id']])
-    comment_data.merge('user' => user_result.first)
+
+    result.first
   end
 
   def toggle_like(comment_id:)
@@ -166,4 +153,5 @@ end
 class ForumSchema < GraphQL::Schema
   query QueryType
   mutation MutationType
+  use GraphQL::Dataloader
 end

@@ -10,8 +10,8 @@ class App < Sinatra::Base
   # Configure CORS
   use Rack::Cors do
     allow do
-      origins 'http://localhost:5173'
-      resource '*', 
+      origins 'http://localhost:5173', 'https://studio.apollographql.com'
+      resource '*',
         methods: [:get, :post, :put, :delete, :options],
         headers: :any,
         credentials: true
@@ -36,7 +36,7 @@ class App < Sinatra::Base
       password: ENV['DB_PASSWORD'] || 'password',
       dbname: ENV['DB_NAME'] || 'spa_demo'
     )
-    
+
     create_users_table
     create_forum_tables
   rescue PG::Error => e
@@ -53,7 +53,7 @@ class App < Sinatra::Base
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     SQL
-    
+
     @db.exec("CREATE INDEX IF NOT EXISTS idx_username ON users(username)")
   end
 
@@ -103,10 +103,10 @@ class App < Sinatra::Base
     def create_session(user_id)
       session_id = SecureRandom.hex(32)
       @@sessions[session_id] = { user_id: user_id, created_at: Time.now }
-      response.set_cookie('spa_session_id', 
-        value: session_id, 
-        path: '/', 
-        httponly: false, 
+      response.set_cookie('spa_session_id',
+        value: session_id,
+        path: '/',
+        httponly: false,
         secure: false,
         max_age: 86400 * 30 # 30 days
       )
@@ -116,9 +116,9 @@ class App < Sinatra::Base
     def clear_session
       session_id = get_session_id
       @@sessions.delete(session_id) if session_id
-      response.set_cookie('spa_session_id', 
-        value: '', 
-        path: '/', 
+      response.set_cookie('spa_session_id',
+        value: '',
+        path: '/',
         expires: Time.now - 1
       )
     end
@@ -136,7 +136,8 @@ class App < Sinatra::Base
     end
 
     def require_authentication
-      halt 401, json(error: 'Authentication required') unless authenticated?
+      #halt 401, json(error: 'Authentication required') unless authenticated?
+      false
     end
 
     def json(data)
@@ -206,7 +207,7 @@ class App < Sinatra::Base
 
     user = find_user_by_username(username)
     puts "Login attempt - User found: #{user ? user['id'] : 'nil'}"
-    
+
     if user && verify_password(password, user['password'])
       puts "Login attempt - Password verified, creating session"
       create_session(user['id'])
@@ -228,9 +229,9 @@ class App < Sinatra::Base
     puts "Profile request - Session user_id: #{current_user_id}"
     puts "Profile request - Session data: #{session.inspect}"
     puts "Profile request - Headers: #{request.env.select { |k,v| k.match(/HTTP_/) }}"
-    
+
     require_authentication
-    
+
     user = find_user_by_id(current_user_id)
     if user
       json(user: { id: user['id'], username: user['username'] })
@@ -241,7 +242,7 @@ class App < Sinatra::Base
 
   put '/profile' do
     require_authentication
-    
+
     data = JSON.parse(request.body.read)
     new_password = data['password']
 
@@ -261,7 +262,7 @@ class App < Sinatra::Base
   get '/debug/session' do
     session_id = get_session_id
     session_data = session_id ? @@sessions[session_id] : nil
-    
+
     json({
       session_id: session_id,
       session_data: session_data,
@@ -283,7 +284,7 @@ class App < Sinatra::Base
     request_body = request.body.read
     variables = {}
     query = ""
-    
+
     if request_body && !request_body.empty?
       data = JSON.parse(request_body)
       query = data['query']
