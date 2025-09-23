@@ -280,6 +280,239 @@ class App < Sinatra::Base
     json({ users: users, count: users.length })
   end
 
+  # REST API endpoints for forum
+  get '/api/threads' do
+    content_type :json
+
+    # Get threads with user data and comment counts
+    threads_result = @db.exec(<<~SQL)
+      SELECT
+        t.*,
+        u.username,
+        COALESCE(comment_counts.count, 0) as comment_count
+      FROM threads t
+      JOIN users u ON t.user_id = u.id
+      LEFT JOIN (
+        SELECT thread_id, COUNT(*) as count
+        FROM comments
+        GROUP BY thread_id
+      ) comment_counts ON t.id = comment_counts.thread_id
+      ORDER BY t.created_at DESC
+    SQL
+
+    threads = threads_result.map do |thread|
+      {
+        id: thread['id'],
+        title: thread['title'],
+        content: thread['content'],
+        commentCount: thread['comment_count'].to_i,
+        createdAt: thread['created_at'],
+        user: {
+          id: thread['user_id'],
+          username: thread['username']
+        }
+      }
+    end
+
+    json({ threads: threads })
+  end
+
+  get '/api/threads/:id' do
+    content_type :json
+    thread_id = params[:id]
+
+    # Get thread with user data
+    thread_result = @db.exec_params(<<~SQL, [thread_id])
+      SELECT t.*, u.username
+      FROM threads t
+      JOIN users u ON t.user_id = u.id
+      WHERE t.id = $1
+    SQL
+
+    halt 404, json(error: 'Thread not found') if thread_result.ntuples == 0
+
+    thread_data = thread_result.first
+
+    # Get comments with user data and like counts
+    comments_result = @db.exec_params(<<~SQL, [thread_id, current_user_id])
+      SELECT
+        c.*,
+        u.username,
+        COALESCE(like_counts.count, 0) as likes_count,
+        CASE WHEN user_likes.comment_id IS NOT NULL THEN true ELSE false END as is_liked_by_current_user
+      FROM comments c
+      JOIN users u ON c.user_id = u.id
+      LEFT JOIN (
+        SELECT comment_id, COUNT(*) as count
+        FROM likes
+        GROUP BY comment_id
+      ) like_counts ON c.id = like_counts.comment_id
+      LEFT JOIN likes user_likes ON c.id = user_likes.comment_id AND user_likes.user_id = $2
+      WHERE c.thread_id = $1
+      ORDER BY c.created_at ASC
+    SQL
+
+    comments = comments_result.map do |comment|
+      {
+        id: comment['id'],
+        content: comment['content'],
+        createdAt: comment['created_at'],
+        likesCount: comment['likes_count'].to_i,
+        isLikedByCurrentUser: comment['is_liked_by_current_user'] == 't',
+        user: {
+          id: comment['user_id'],
+          username: comment['username']
+        }
+      }
+    end
+
+    thread = {
+      id: thread_data['id'],
+      title: thread_data['title'],
+      content: thread_data['content'],
+      createdAt: thread_data['created_at'],
+      commentCount: comments.length,
+      user: {
+        id: thread_data['user_id'],
+        username: thread_data['username']
+      },
+      comments: comments
+    }
+
+    json({ thread: thread })
+  end
+
+  post '/api/threads' do
+    content_type :json
+
+    # Check authentication
+    halt 401, json(error: 'Authentication required') unless authenticated?
+
+    data = JSON.parse(request.body.read)
+    title = data['title']
+    content = data['content']
+
+    if title.nil? || title.empty? || content.nil? || content.empty?
+      halt 400, json(error: 'Title and content are required')
+    end
+
+    begin
+      result = @db.exec_params(
+        "INSERT INTO threads (title, content, user_id) VALUES ($1, $2, $3) RETURNING *",
+        [title, content, current_user_id]
+      )
+
+      thread_data = result.first
+      user = find_user_by_id(current_user_id)
+
+      thread = {
+        id: thread_data['id'],
+        title: thread_data['title'],
+        content: thread_data['content'],
+        createdAt: thread_data['created_at'],
+        commentCount: 0,
+        user: {
+          id: user['id'],
+          username: user['username']
+        }
+      }
+
+      json({ thread: thread })
+    rescue PG::Error => e
+      halt 500, json(error: 'Failed to create thread')
+    end
+  end
+
+  post '/api/threads/:thread_id/comments' do
+    content_type :json
+
+    # Check authentication
+    halt 401, json(error: 'Authentication required') unless authenticated?
+
+    thread_id = params[:thread_id]
+    data = JSON.parse(request.body.read)
+    content = data['content']
+
+    if content.nil? || content.empty?
+      halt 400, json(error: 'Content is required')
+    end
+
+    begin
+      result = @db.exec_params(
+        "INSERT INTO comments (content, thread_id, user_id) VALUES ($1, $2, $3) RETURNING *",
+        [content, thread_id, current_user_id]
+      )
+
+      comment_data = result.first
+      user = find_user_by_id(current_user_id)
+
+      comment = {
+        id: comment_data['id'],
+        content: comment_data['content'],
+        createdAt: comment_data['created_at'],
+        likesCount: 0,
+        isLikedByCurrentUser: false,
+        user: {
+          id: user['id'],
+          username: user['username']
+        }
+      }
+
+      json({ comment: comment })
+    rescue PG::Error => e
+      halt 500, json(error: 'Failed to create comment')
+    end
+  end
+
+  post '/api/comments/:id/toggle-like' do
+    content_type :json
+
+    # Check authentication
+    halt 401, json(error: 'Authentication required') unless authenticated?
+
+    comment_id = params[:id]
+
+    begin
+      # Check if like already exists
+      existing_like = @db.exec_params(
+        "SELECT 1 FROM likes WHERE comment_id = $1 AND user_id = $2",
+        [comment_id, current_user_id]
+      )
+
+      if existing_like.ntuples > 0
+        # Remove like
+        @db.exec_params(
+          "DELETE FROM likes WHERE comment_id = $1 AND user_id = $2",
+          [comment_id, current_user_id]
+        )
+        liked = false
+      else
+        # Add like
+        @db.exec_params(
+          "INSERT INTO likes (comment_id, user_id) VALUES ($1, $2)",
+          [comment_id, current_user_id]
+        )
+        liked = true
+      end
+
+      # Get updated like count
+      count_result = @db.exec_params(
+        "SELECT COUNT(*) as count FROM likes WHERE comment_id = $1",
+        [comment_id]
+      )
+
+      likes_count = count_result.first['count'].to_i
+
+      json({
+        liked: liked,
+        likesCount: likes_count,
+        commentId: comment_id
+      })
+    rescue PG::Error => e
+      halt 500, json(error: 'Failed to toggle like')
+    end
+  end
+
   post '/graphql' do
     request_body = request.body.read
     variables = {}

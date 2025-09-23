@@ -4,6 +4,8 @@ import LoginForm from './components/LoginForm'
 import ProfileView from './components/ProfileView'
 import ForumPage from './components/ForumPage'
 import ThreadPage from './components/ThreadPage'
+import ForumPageRedux from './components/ForumRedux/ForumPageRedux'
+import ThreadPageRedux from './components/ForumRedux/ThreadPageRedux'
 import PrivateRoute from './components/PrivateRoute'
 import './App.css'
 
@@ -19,22 +21,36 @@ function App() {
             padding: '15px 20px',
             marginBottom: '0'
           }}>
-            <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', gap: '20px' }}>
-              <Link 
-                to="/forum" 
-                style={{ 
-                  color: 'white', 
+            <div style={{ maxWidth: '800px', margin: '0 auto', display: 'flex', gap: '20px', alignItems: 'center' }}>
+              <Link
+                to="/forum"
+                style={{
+                  color: 'white',
                   textDecoration: 'none',
                   fontSize: '16px',
                   fontWeight: 'bold'
                 }}
               >
-                Forum
+                Forum (GraphQL)
               </Link>
-              <Link 
-                to="/profile" 
-                style={{ 
-                  color: 'white', 
+              <Link
+                to="/forum_redux"
+                style={{
+                  color: 'white',
+                  textDecoration: 'none',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                  background: 'rgba(255,255,255,0.1)',
+                  padding: '4px 8px',
+                  borderRadius: '4px'
+                }}
+              >
+                Forum (Redux)
+              </Link>
+              <Link
+                to="/profile"
+                style={{
+                  color: 'white',
                   textDecoration: 'none',
                   fontSize: '16px',
                   fontWeight: 'bold'
@@ -68,17 +84,33 @@ function App() {
               </PrivateRoute>
             } 
           />
-          <Route 
-            path="/forum/thread/:id" 
+          <Route
+            path="/forum/thread/:id"
             element={
               <PrivateRoute>
                 <ThreadPage />
               </PrivateRoute>
-            } 
+            }
           />
-          <Route 
-            path="*" 
-            element={<Navigate to="/" replace />} 
+          <Route
+            path="/forum_redux"
+            element={
+              <PrivateRoute>
+                <ForumPageRedux />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/forum_redux/:id"
+            element={
+              <PrivateRoute>
+                <ThreadPageRedux />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="*"
+            element={<Navigate to="/" replace />}
           />
         </Routes>
       </div>
