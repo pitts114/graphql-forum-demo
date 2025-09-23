@@ -49,18 +49,6 @@ export default function ProfileView() {
           {loading ? 'Logging out...' : 'Logout'}
         </button>
       </div>
-
-      <div style={{
-        marginTop: '40px',
-        padding: '15px',
-        backgroundColor: '#e3f2fd',
-        borderRadius: '4px',
-        fontSize: '14px',
-        color: '#1565c0'
-      }}>
-        <strong>Note:</strong> This profile view demonstrates basic user authentication.
-        The session is managed server-side and will persist across browser refreshes.
-      </div>
     </div>
   )
 }
