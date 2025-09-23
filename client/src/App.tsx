@@ -40,7 +40,6 @@ function App() {
                   textDecoration: 'none',
                   fontSize: '16px',
                   fontWeight: 'bold',
-                  background: 'rgba(255,255,255,0.1)',
                   padding: '4px 8px',
                   borderRadius: '4px'
                 }}
@@ -62,27 +61,27 @@ function App() {
           </nav>
         )}
         <Routes>
-          <Route 
-            path="/" 
+          <Route
+            path="/"
             element={
               isAuthenticated ? <Navigate to="/forum" replace /> : <LoginForm />
-            } 
+            }
           />
-          <Route 
-            path="/profile" 
+          <Route
+            path="/profile"
             element={
               <PrivateRoute>
                 <ProfileView />
               </PrivateRoute>
-            } 
+            }
           />
-          <Route 
-            path="/forum" 
+          <Route
+            path="/forum"
             element={
               <PrivateRoute>
                 <ForumPage />
               </PrivateRoute>
-            } 
+            }
           />
           <Route
             path="/forum/thread/:id"
