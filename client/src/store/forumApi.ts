@@ -61,7 +61,7 @@ export const forumApi = createApi({
     // Get single thread with comments
     getThread: builder.query<ThreadResponse, string>({
       query: (id) => `/threads/${id}`,
-      providesTags: (result, error, id) => [
+      providesTags: (_result, _error, id) => [
         { type: 'Thread', id },
         { type: 'Comment', id: 'LIST' },
       ],
@@ -84,7 +84,7 @@ export const forumApi = createApi({
         method: 'POST',
         body: { content },
       }),
-      invalidatesTags: (result, error, { threadId }) => [
+      invalidatesTags: (_result, _error, { threadId }) => [
         { type: 'Thread', id: threadId },
         { type: 'Comment', id: 'LIST' },
       ],
